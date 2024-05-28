@@ -3,22 +3,17 @@
 ## Examples
 
 ```
-npm install partial-uploader
-```
-
-```js
-
-const file = event.target.files[0];
-
-uploadFile = (file: File) => uploadWithPartialFile("/File/upload", file, 
-    //you can add header here
-    { "Authorization": `Bearer ${token}` });
-
-let uploadResponse = await uploadFile(file);
-```
-
-```
 dotnet add package UFile.PartialUploader
+```
+
+```c#
+public static IServiceCollection AddServices(this IServiceCollection services, IConfiguration conf)
+{
+    // Adds the UFile service to the specified service collection.
+    services.AddUFile("App_Data", "tmp");
+
+    return services;
+}
 ```
 
 ```c#
@@ -34,5 +29,26 @@ dotnet add package UFile.PartialUploader
             return StatusCode((int)await partial_uploader.UploadChunkFiles(Request));
         }
     }
+
+```
+
+```
+npm install partial-uploader
+```
+
+```js
+
+const file = event.target.files[0];
+
+uploadFile = (file: File) => uploadWithPartialFile("/File/upload", file, 
+    //you can add header here
+    { "Authorization": `Bearer ${token}` });
+
+let uploadResponse = await uploadFile(file);
+if (uploadResponse.success)
+{
+    // your file will be inside the folder at this location
+    const path = 'App_Data/tmp/' + uploadResponse.id;
+}
 
 ```
