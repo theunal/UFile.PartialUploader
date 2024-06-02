@@ -48,3 +48,7 @@ if (uploadResponse.success)
 }
 
 ```
+
+```c#
+    var fileInfo = UFileHelper.GetFileInfo(tempFolderId);
+```
