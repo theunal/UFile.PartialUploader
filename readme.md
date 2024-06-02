@@ -20,14 +20,10 @@ public static IServiceCollection AddServices(this IServiceCollection services, I
 
     [Route("api/[controller]")]
     [ApiController]
-    public class FileController : ControllerBase
+    public class FileController(IUFileService uFileService) : ControllerBase
     {
         [HttpPost("upload")]
-        public async Task<IActionResult> Upload()
-        {
-            var partial_uploader = new UFileHelper();
-            return StatusCode((int)await partial_uploader.UploadChunkFiles(Request));
-        }
+        public async Task<IActionResult> Upload() => StatusCode((int)await uFileService.UploadChunkFiles(Request));
     }
 
 ```
