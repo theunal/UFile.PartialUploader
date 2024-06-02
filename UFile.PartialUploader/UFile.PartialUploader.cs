@@ -10,7 +10,11 @@ namespace UFile.PartialUploader;
 /// </summary>
 /// <param name="Request">The HTTP request containing the chunked file data.</param>
 /// <returns>The status code indicating the result of the operation.</returns>
-public class UFileHelper
+public interface IUFileService
+{
+    Task<HttpStatusCode> UploadChunkFiles([NotNull] HttpRequest Request);
+}
+public class UFileService: IUFileService
 {
     public async Task<HttpStatusCode> UploadChunkFiles([NotNull] HttpRequest Request)
     {
@@ -26,8 +30,8 @@ public class UFileHelper
         if (file is null || fileGuid is null || filename is null) return HttpStatusCode.NotFound;
 
         string chunk_files_folder_name = "__UFile.ChunkFiles__";
-        var dirPath = Path.Combine(UFileStaticHelper.BasePath, chunk_files_folder_name, fileGuid);
-        var save = await UFileStaticHelper.SaveWithRetryAsync(dirPath, file.FileName, file, 3, 3);
+        var dirPath = Path.Combine(UFileHelper.BasePath, chunk_files_folder_name, fileGuid);
+        var save = await UFileHelper.SaveWithRetryAsync(dirPath, file.FileName, file, 3, 3);
         if (save is false) return HttpStatusCode.BadRequest;
 
         if (isDone)
@@ -35,7 +39,7 @@ public class UFileHelper
             byte[] bytes = new byte[totalSize];
             using var ms = new MemoryStream();
 
-            var chunkRes = await UFileStaticHelper.ChunkMerger(ms, totalChunks, dirPath, filename);
+            var chunkRes = await UFileHelper.ChunkMerger(ms, totalChunks, dirPath, filename);
             if (chunkRes is false)
             {
                 Directory.Delete(dirPath, true);
@@ -46,8 +50,8 @@ public class UFileHelper
             await ms.FlushAsync();
             ms.Close();
 
-            var temp_file_path = Path.Combine(dirPath.Replace(chunk_files_folder_name, UFileStaticHelper.TempFolderName));
-            await UFileStaticHelper.SaveFile(temp_file_path, filename, bytes);
+            var temp_file_path = Path.Combine(dirPath.Replace(chunk_files_folder_name, UFileHelper.TempFolderName));
+            await UFileHelper.SaveFile(temp_file_path, filename, bytes);
 
             Directory.Delete(dirPath, true);
         }
@@ -56,7 +60,7 @@ public class UFileHelper
     }
 }
 
-public static class UFileStaticHelper
+public static class UFileHelper
 {
     public static string BasePath = null!;
     public static string TempFolderName = null!;
@@ -144,6 +148,32 @@ public static class UFileStaticHelper
     }
 
     /// <summary>
+    /// Retrieves the FileInfo object for the first file in a specified temporary folder.
+    /// </summary>
+    /// <param name="folder_id">The identifier of the folder to search for the file.</param>
+    /// <returns>The FileInfo object of the first file found in the specified folder, or null if the folder does not exist or contains no files.</returns>
+    public static FileInfo? GetFileInfo(string folder_id)
+    {
+        var folderPath = Path.Combine(Directory.GetCurrentDirectory(), BasePath, TempFolderName, folder_id);
+        if (Directory.Exists(folderPath) is false) return null;
+
+        var file_path = Directory.GetFiles(folderPath)?.FirstOrDefault();
+        if (file_path is null) return null;
+
+        return new FileInfo(file_path);
+    }
+
+    /// <summary>
+    /// Removes a temporary folder identified by the given folder ID if it exists.
+    /// </summary>
+    /// <param name="folder_id">The ID of the folder to be removed.</param>
+    public static void RemoveTempFolder(string folder_id)
+    {
+        var folderPath = Path.Combine(Directory.GetCurrentDirectory(), BasePath, TempFolderName, folder_id);
+        if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);
+    }
+
+    /// <summary>
     /// Saves an uploaded file to the specified path.
     /// </summary>
     /// <param name="dirPath">The directory path where the file will be saved.</param>
@@ -188,8 +218,10 @@ public static class UFileExtensions
         ArgumentNullException.ThrowIfNull(base_path);
         ArgumentNullException.ThrowIfNull(temp_foldername);
 
-        UFileStaticHelper.BasePath = base_path;
-        UFileStaticHelper.TempFolderName = temp_foldername;
+        UFileHelper.BasePath = base_path;
+        UFileHelper.TempFolderName = temp_foldername;
+
+        services.AddScoped<IUFileService, UFileService>();
 
         return services;
     }
