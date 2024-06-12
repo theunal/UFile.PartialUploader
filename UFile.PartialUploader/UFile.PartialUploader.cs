@@ -13,9 +13,17 @@ namespace UFile.PartialUploader;
 public interface IUFileService
 {
     Task<HttpStatusCode> UploadChunkFiles([NotNull] HttpRequest Request);
+    Task<(bool success, string id, string message)> UploadWithPartialFileAsync([NotNull] string url, [NotNull] Stream fileStream, [NotNull] string fileName,
+        Dictionary<string, string>? headers = null, int chunkSize = 26214400);
 }
-public class UFileService: IUFileService
+public class UFileService : IUFileService
 {
+    /// <summary>
+    /// Handles the upload of chunked files and assembles them into a complete file when all chunks are uploaded.
+    /// </summary>
+    /// <param name="Request">The HTTP request containing the file chunks and related metadata.</param>
+    /// <returns>The HTTP status code indicating the result of the upload operation.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the Request parameter is null.</exception>
     public async Task<HttpStatusCode> UploadChunkFiles([NotNull] HttpRequest Request)
     {
         ArgumentNullException.ThrowIfNull(Request);
@@ -58,12 +66,65 @@ public class UFileService: IUFileService
 
         return HttpStatusCode.OK;
     }
+
+    /// <summary>
+    /// Uploads a file to the specified URL, either in one piece or in chunks if the file is too large.
+    /// </summary>
+    /// <param name="url">The URL to which the file will be uploaded.</param>
+    /// <param name="fileStream">The stream of the file to be uploaded.</param>
+    /// <param name="fileName">The name of the file to be uploaded.</param>
+    /// <param name="headers">Optional headers to include in the upload request.</param>
+    /// <param name="chunkSize">The size of each chunk in bytes. Default is 25MB.</param>
+    /// <returns>A tuple containing success status, temp folder ID, and a message.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when URL, fileName, or fileStream is null.</exception>
+    /// <exception cref="InvalidDataException">Thrown when a chunk is null or file could not be loaded.</exception>
+    public async Task<(bool success, string id, string message)> UploadWithPartialFileAsync([NotNull] string url, [NotNull] Stream fileStream, [NotNull] string fileName,
+        Dictionary<string, string>? headers = null, int chunkSize = 26214400)
+    {
+        if (string.IsNullOrEmpty(url))
+            throw new ArgumentNullException("Url is null.");
+
+        if (string.IsNullOrEmpty(fileName))
+            throw new ArgumentNullException("Filename is null.");
+
+        if (fileStream is null)
+            throw new ArgumentNullException("File stream is null.");
+
+        await Task.Delay(50);
+        var id = Guid.NewGuid().ToString();
+
+        if (fileStream.Length <= chunkSize) // small file upload
+        {
+            var res = await UFileExtensions.UploadAsync(url, fileStream, fileName, 1, (int)fileStream.Length, id, 1, headers);
+            if (!res)
+                return (false, id, "file could not be loaded");
+        }
+        else
+        {
+            // big file upload - partial
+            var chunks = UFileExtensions.SplitFileIntoChunks(fileStream, chunkSize);
+
+            for (int i = 1; i <= chunks.Count; i++)
+            {
+                var chunk = chunks[i - 1] ?? throw new InvalidDataException("Chunk is null.");
+
+                var res = await UFileExtensions.UploadAsync(url, chunk, fileName, chunks.Count, (int)fileStream.Length, id, i, headers);
+                if (!res)
+                    throw new InvalidDataException("File could not be loaded.");
+
+                await Task.Delay(550);
+            }
+        }
+
+        return (true, id, "file uploaded successfully");
+    }
 }
 
 public static class UFileHelper
 {
     public static string BasePath = null!;
     public static string TempFolderName = null!;
+    public static int UploadChunkSize = 26214400;
 
     /// <summary>
     /// Attempts to save a file with retries if the initial attempts fail.
@@ -212,7 +273,7 @@ public static class UFileHelper
 /// <returns>The updated service collection.</returns>
 public static class UFileExtensions
 {
-    public static IServiceCollection AddUFile([NotNull] this IServiceCollection services, [NotNull] string base_path = "App_Data", string temp_foldername = "tmp")
+    public static IServiceCollection AddUFile([NotNull] this IServiceCollection services, [NotNull] string base_path = "App_Data", string temp_foldername = "tmp", int upload_chunk_size_for_server_side = 26214400)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(base_path);
@@ -220,9 +281,105 @@ public static class UFileExtensions
 
         UFileHelper.BasePath = base_path;
         UFileHelper.TempFolderName = temp_foldername;
+        UFileHelper.UploadChunkSize = upload_chunk_size_for_server_side;
 
         services.AddScoped<IUFileService, UFileService>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Uploads a file chunk to the specified URL.
+    /// </summary>
+    /// <param name="url">The URL to which the chunk will be uploaded.</param>
+    /// <param name="chunk">The file chunk to be uploaded.</param>
+    /// <param name="fileName">The name of the file being uploaded.</param>
+    /// <param name="chunksLength">The total number of chunks.</param>
+    /// <param name="fileSize">The size of the file in bytes.</param>
+    /// <param name="fileGuid">The unique identifier for the file upload session.</param>
+    /// <param name="index">The index of the current chunk.</param>
+    /// <param name="headers">Optional headers to include in the upload request.</param>
+    /// <returns>A task that represents the asynchronous operation, containing the success status.</returns>
+    public static Task<bool> UploadAsync(string url, Stream chunk, string fileName, int chunksLength, int fileSize, string fileGuid, int index, Dictionary<string, string>? headers)
+    {
+        var formData = new MultipartFormDataContent();
+        var streamContent = new StreamContent(chunk);
+        formData.Add(streamContent, "file", $"{fileName}_chunk_{index}");
+        formData.Add(new StringContent(fileGuid), "fileGuid");
+        var isDone = chunksLength == index;
+        formData.Add(new StringContent(isDone.ToString()), "isDone");
+        formData.Add(new StringContent(fileSize.ToString()), "totalSize");
+        formData.Add(new StringContent(chunksLength.ToString()), "totalChunks");
+        formData.Add(new StringContent(fileName), "filename");
+
+        return GetResponseAsync(url, formData, headers);
+    }
+
+    /// <summary>
+    /// Gets the response from the server after attempting to upload the form data.
+    /// </summary>
+    /// <param name="url">The URL to which the form data will be sent.</param>
+    /// <param name="formData">The form data to be uploaded.</param>
+    /// <param name="headers">Optional headers to include in the request.</param>
+    /// <returns>A task that represents the asynchronous operation, containing the success status.</returns>
+    private static async Task<bool> GetResponseAsync(string url, MultipartFormDataContent formData, Dictionary<string, string>? headers)
+    {
+        try
+        {
+            var res = await UploadSubscribeAsync(url, formData, headers);
+            if (res.StatusCode == System.Net.HttpStatusCode.NotAcceptable || res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return false;
+        }
+        catch (Exception)
+        {
+            await Task.Delay(500);
+            var res = await UploadSubscribeAsync(url, formData, headers);
+            if (!res.IsSuccessStatusCode)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Sends the form data to the specified URL using an HTTP POST request.
+    /// </summary>
+    /// <param name="url">The URL to which the form data will be sent.</param>
+    /// <param name="formData">The form data to be uploaded.</param>
+    /// <param name="headers">Optional headers to include in the request.</param>
+    /// <returns>A task that represents the asynchronous operation, containing the HTTP response.</returns>
+    private static async Task<HttpResponseMessage> UploadSubscribeAsync(string url, MultipartFormDataContent formData, Dictionary<string, string>? headers)
+    {
+        if (headers != null)
+        {
+            foreach (var header in headers)
+            {
+                formData.Headers.Add(header.Key, header.Value);
+            }
+        }
+
+        using var client = new HttpClient();
+        var response = await client.PostAsync(url, formData);
+        return response;
+    }
+
+    /// <summary>
+    /// Splits the file stream into chunks of the specified size.
+    /// </summary>
+    /// <param name="fileStream">The file stream to be split into chunks.</param>
+    /// <param name="chunkSize">The size of each chunk in bytes.</param>
+    /// <returns>A list of streams representing the file chunks.</returns>
+    public static List<Stream> SplitFileIntoChunks(Stream fileStream, int chunkSize)
+    {
+        var chunks = new List<Stream>();
+        var buffer = new byte[chunkSize];
+        int bytesRead;
+        while ((bytesRead = fileStream.Read(buffer, 0, chunkSize)) > 0)
+        {
+            var chunk = new MemoryStream(buffer, 0, bytesRead);
+            chunks.Add(chunk);
+        }
+
+        return chunks;
     }
 }
