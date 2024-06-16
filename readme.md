@@ -61,25 +61,12 @@ if (uploadResponse.success)
     {
         public async Task Upload()
         {
-            string url = "https://example.com/upload";
-            string filePath = "path/to/your/file.txt";
+            var path = Path.Combine(Directory.GetCurrentDirectory(), "App_Data", "path/to/your/file.txt");
 
-            // Headers add if available
-            Dictionary<string, string> headers = new Dictionary<string, string>
+            var res = await UploadWithPartialFileAsync("https://example.com/upload", path, new Dictionary<string, string>
             {
                 { "Authorization", "Bearer your_token" }
-            };
-
-            try
-            {
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-                var (success, id, message) = await uFileService.UploadWithPartialFileAsync(url, fileStream, Path.GetFileName(filePath), headers);
-                Console.WriteLine($"Success: {success}, ID: {id}, Message: {message}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
+            });
         }
     }
 
