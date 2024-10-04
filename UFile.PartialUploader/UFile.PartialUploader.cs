@@ -228,7 +228,7 @@ public class UFileService : IUFileService
 
         while ((bytesRead = fileStream.Read(buffer, 0, chunkSize)) > 0)
         {
-            var chunk = new MemoryStream(buffer, 0, bytesRead);
+            var chunk = new MemoryStream(buffer.Take(bytesRead).ToArray());
             chunks.Add(chunk);
         }
 
@@ -289,9 +289,8 @@ public static class UFileHelper
     /// <returns>A task that represents the asynchronous merge operation. The task result contains a boolean indicating success or failure.</returns>
     public static async Task<bool> ChunkMerger(MemoryStream ms, int totalChunks, string dirPath, string filename)
     {
-        for (var i = 0; i < totalChunks;)
+        for (var i = 0; i < totalChunks; i++)
         {
-            i++;
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), dirPath, $"{filename}_chunk_{i}");
             if (File.Exists(filePath))
             {
