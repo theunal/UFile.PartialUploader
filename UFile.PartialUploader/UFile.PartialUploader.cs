@@ -162,7 +162,7 @@ public class UFileService : IUFileService
         var streamContent = new StreamContent(chunk);
         formData.Add(streamContent, "file", $"{fileName}_chunk_{index}");
         formData.Add(new StringContent(fileGuid), "fileGuid");
-        var isDone = chunksLength == index;
+        var isDone = chunksLength == index + 1;
         formData.Add(new StringContent(isDone.ToString()), "isDone");
         formData.Add(new StringContent(fileSize.ToString()), "totalSize");
         formData.Add(new StringContent(chunksLength.ToString()), "totalChunks");
