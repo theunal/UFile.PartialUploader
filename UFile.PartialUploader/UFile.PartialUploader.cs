@@ -110,7 +110,7 @@ public class UFileService : IUFileService
         var fileName = Path.GetFileName(filePath);
         if (fileStream.Length <= chunkSize) // small file upload
         {
-            var res = await UploadAsync(url, fileStream, fileName, 1, (int)fileStream.Length, id, 1, headers);
+            var res = await UploadAsync(url, fileStream, fileName, 1, (int)fileStream.Length, id, 0, headers);
             if (!res)
                 return new UploadWithPartialFileReturnModel
                 {
@@ -124,10 +124,9 @@ public class UFileService : IUFileService
             // big file upload - partial
             var chunks = SplitFileIntoChunks(fileStream, chunkSize);
 
-            for (int i = 1; i <= chunks.Count; i++)
+            for (int i = 0; i < chunks.Count; i++)
             {
-                var chunk = chunks[i - 1] ?? throw new InvalidDataException("Chunk is null.");
-
+                var chunk = chunks[i];
                 var res = await UploadAsync(url, chunk, fileName, chunks.Count, (int)fileStream.Length, id, i, headers);
                 if (!res)
                     throw new InvalidDataException("File could not be loaded.");

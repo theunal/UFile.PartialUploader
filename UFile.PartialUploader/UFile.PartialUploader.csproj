@@ -18,7 +18,7 @@
 		<PackageIcon>logo.png</PackageIcon>
 		<PackageTags>partial file uploader</PackageTags>
 		<RepositoryType>git</RepositoryType>
-		<Version>1.0.7</Version>
+		<Version>1.0.8</Version>
 		<PackageReadmeFile>readme.md</PackageReadmeFile>
 	</PropertyGroup>
 
